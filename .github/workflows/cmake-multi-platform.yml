@@ -1,4 +1,4 @@
-name: CMake Cross-Platform CI (Qt6)
+name: CMake Cross-Platform Build (with artifacts)
 
 on:
   push:
@@ -21,34 +21,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # -------------------------
-      # Install dependencies
-      # -------------------------
+      # -----------------------
+      # Install Ninja (recommended for consistency)
+      # -----------------------
 
-      - name: Install Qt (Ubuntu)
+      - name: Install Ninja (Linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qt6-base-dev qt6-tools-dev qt6-tools-dev-tools
-
-      - name: Install Qt (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew install qt
-
-      - name: Install Qt (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          choco install qt6-base -y || echo "Qt install may require manual setup depending on environment"
-
-      # -------------------------
-      # Install Ninja (optional but recommended)
-      # -------------------------
-
-      - name: Install Ninja (Ubuntu)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y ninja-build
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Install Ninja (macOS)
         if: runner.os == 'macOS'
@@ -58,9 +37,25 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ninja -y
 
-      # -------------------------
+      # -----------------------
+      # Install Qt6 (needed for your project)
+      # -----------------------
+
+      - name: Install Qt (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y qt6-base-dev qt6-tools-dev qt6-tools-dev-tools
+
+      - name: Install Qt (macOS)
+        if: runner.os == 'macOS'
+        run: brew install qt
+
+      - name: Install Qt (Windows)
+        if: runner.os == 'Windows'
+        run: choco install qt6-base -y
+
+      # -----------------------
       # Configure CMake
-      # -------------------------
+      # -----------------------
 
       - name: Configure CMake (Linux/macOS)
         if: runner.os != 'Windows'
@@ -74,26 +69,42 @@ jobs:
           cmake -S . -B build -G Ninja ^
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
-      # -------------------------
+      # -----------------------
       # Build
-      # -------------------------
+      # -----------------------
 
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }}
 
-      # -------------------------
-      # Test (if you have tests enabled)
-      # -------------------------
+      # -----------------------
+      # Test (optional)
+      # -----------------------
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      # -------------------------
-      # Upload artifacts (optional but useful)
-      # -------------------------
+      # -----------------------
+      # Package artifacts (IMPORTANT PART)
+      # -----------------------
 
-      - name: Upload build artifacts
+      - name: Package build outputs (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p artifact
+          cp -r build/* artifact/ || true
+
+      - name: Package build outputs (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir artifact
+          xcopy build artifact /E /I /Y
+
+      # -----------------------
+      # Upload artifacts (THIS IS WHAT YOU WANT)
+      # -----------------------
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}
-          path: build/
+          path: artifact/
