@@ -8,6 +8,9 @@ on:
   workflow_dispatch:
 
 jobs:
+  # -------------------------------------------------------
+  # Standard runners: Ubuntu, macOS, Windows
+  # -------------------------------------------------------
   build:
     strategy:
       fail-fast: false
@@ -22,9 +25,8 @@ jobs:
         uses: actions/checkout@v4
 
       # -----------------------
-      # Install Ninja (recommended for consistency)
+      # Install Ninja
       # -----------------------
-
       - name: Install Ninja (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ninja-build
@@ -38,9 +40,8 @@ jobs:
         run: choco install ninja -y
 
       # -----------------------
-      # Install Qt6 (needed for your project)
+      # Install Qt6
       # -----------------------
-
       - name: Install Qt (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y qt6-base-dev qt6-tools-dev qt6-tools-dev-tools
@@ -49,62 +50,109 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install qt
 
+      # Use the dedicated action for Windows — Chocolatey has no reliable Qt6 package
       - name: Install Qt (Windows)
         if: runner.os == 'Windows'
-        run: choco install qt6-base -y
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.0'
+          arch: win64_msvc2019_64
+          cache: true
 
       # -----------------------
       # Configure CMake
       # -----------------------
-
       - name: Configure CMake (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
+      # PowerShell doesn't support ^ continuation; use backtick or just one line
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
         run: |
-          cmake -S . -B build -G Ninja ^
+          cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
       # -----------------------
       # Build
       # -----------------------
-
       - name: Build
         run: cmake --build build --config ${{ matrix.build_type }}
 
       # -----------------------
-      # Test (optional)
+      # Test
       # -----------------------
-
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
       # -----------------------
-      # Package artifacts (IMPORTANT PART)
+      # Package artifacts
       # -----------------------
-
       - name: Package build outputs (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           mkdir -p artifact
           cp -r build/* artifact/ || true
 
+      # Use PowerShell syntax; -Force avoids failure if dir already exists
       - name: Package build outputs (Windows)
         if: runner.os == 'Windows'
         run: |
-          mkdir artifact
-          xcopy build artifact /E /I /Y
+          New-Item -ItemType Directory -Force -Path artifact
+          Copy-Item -Recurse -Force build\* artifact\
 
       # -----------------------
-      # Upload artifacts (THIS IS WHAT YOU WANT)
+      # Upload artifacts
       # -----------------------
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}
+          path: artifact/
+
+  # -------------------------------------------------------
+  # Arch Linux — must run in a container (no hosted runner)
+  # -------------------------------------------------------
+  build-arch:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Install base dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm \
+            git \
+            cmake \
+            ninja \
+            gcc \
+            qt6-base \
+            qt6-tools
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package build outputs
+        run: |
+          mkdir -p artifact
+          cp -r build/* artifact/ || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-archlinux
           path: artifact/
